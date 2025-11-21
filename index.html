@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bengaluru Live Traffic v11</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --panel: #0f172a;
+            --accent: #3b82f6;
+            --text: #f8fafc;
+            --orange: #fb923c;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { display: flex; height: 100vh; font-family: 'Inter', sans-serif; overflow: hidden; color: var(--text); }
+
+        /* SIDEBAR */
+        .sidebar { 
+            width: 420px; background: var(--panel); display: flex; flex-direction: column; 
+            z-index: 999; box-shadow: 5px 0 25px rgba(0,0,0,0.6); border-right: 1px solid #1e293b;
+        }
+        
+        .header { padding: 20px; border-bottom: 1px solid #1e293b; }
+        .header h1 { font-size: 1.1rem; font-weight: 900; letter-spacing: -0.5px; color: white; }
+        .sub-header { font-size: 0.75rem; color: #94a3b8; margin-top: 4px; }
+
+        .scroll-area { flex: 1; overflow-y: auto; padding: 20px; }
+
+        /* GRIDS */
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 20px; }
+        
+        .chip {
+            background: rgba(255,255,255,0.05); border: 1px solid #334155; padding: 10px 5px;
+            border-radius: 8px; cursor: pointer; text-align: center; transition: 0.2s;
+        }
+        .chip:hover { background: rgba(255,255,255,0.1); border-color: #94a3b8; }
+        .chip.selected { background: var(--accent); border-color: var(--accent); color: white; }
+        .chip.disabled { opacity: 0.3; pointer-events: none; }
+        
+        .avatar {
+            width: 30px; height: 30px; border-radius: 50%; margin: 0 auto 6px;
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-weight: bold; font-size: 0.75rem; border: 2px solid rgba(255,255,255,0.2);
+        }
+
+        /* TABS */
+        .mode-tabs { display: flex; background: #1e293b; padding: 4px; border-radius: 8px; margin-bottom: 10px; display:none; }
+        .tab { flex: 1; text-align: center; padding: 10px; font-size: 0.75rem; font-weight: 700; color: #94a3b8; cursor: pointer; border-radius: 6px; transition:0.2s; }
+        .tab:hover { color: white; }
+        .tab.active { background: #334155; color: white; }
+        
+        .tab.locked { opacity: 0.4; cursor: not-allowed; position: relative; }
+        .tab.locked::after { content: '❌'; position: absolute; top: -5px; right: 5px; font-size: 10px; }
+
+        /* ALERT BOX */
+        .alert-box {
+            background: rgba(234, 179, 8, 0.1); border: 1px solid rgba(234, 179, 8, 0.3);
+            color: #facc15; font-size: 0.75rem; padding: 10px; border-radius: 8px;
+            margin-bottom: 15px; display: none; align-items: center; gap: 8px;
+        }
+
+        /* CARD */
+        .transit-card {
+            background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 15px;
+            margin-top: 10px; display: none; border-left: 4px solid var(--orange);
+        }
+
+        .stats-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 15px; border-bottom: 1px solid #1e293b; padding-bottom: 15px; }
+        .big-time { font-size: 1.8rem; font-weight: 800; line-height: 1; }
+        .price-tag { font-family: 'JetBrains Mono'; font-size: 1.1rem; color: #cbd5e1; text-align: right; }
+
+        .timeline { margin-left: 10px; border-left: 2px solid #334155; padding-left: 20px; margin-top: 10px; }
+        .stop { margin-bottom: 20px; position: relative; }
+        .stop:last-child { margin-bottom: 0; }
+        .stop::before {
+            content: ''; position: absolute; left: -26px; top: 4px;
+            width: 10px; height: 10px; border-radius: 50%; background: #64748b; border: 2px solid #0f172a;
+        }
+        .stop-time { font-family: 'JetBrains Mono'; font-size: 0.7rem; color: var(--accent); }
+        .stop-name { font-size: 0.85rem; font-weight: 600; margin-bottom: 2px; }
+        .stop-detail { font-size: 0.75rem; color: #94a3b8; }
+
+        /* MAP & CONTROLS */
+        #map { flex: 1; background: #0b1120; position: relative; }
+        .step-label { font-size: 0.7rem; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 10px; }
+
+        .map-controls {
+            position: absolute; top: 20px; right: 20px; z-index: 1000;
+            display: flex; gap: 8px; background: rgba(255,255,255,0.9); padding: 5px; border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .map-btn {
+            border: none; background: transparent; padding: 8px 12px; font-weight: 700; 
+            font-size: 0.75rem; cursor: pointer; border-radius: 6px; color: #475569;
+        }
+        .map-btn.active { background: #0f172a; color: white; }
+        .map-btn.traffic-active { background: #ef4444; color: white; }
+
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="header">
+            <h1>Bengaluru<span style="color:var(--accent)">Traffic</span></h1>
+            <div class="sub-header">Live Visuals • Smart Routing</div>
+        </div>
+
+        <div class="scroll-area">
+            <div class="step-label">1. Origin</div>
+            <div class="grid" id="originGrid"></div>
+
+            <div id="destSection" style="opacity:0.3; pointer-events:none;">
+                <div class="step-label">2. Destination</div>
+                <div class="grid" id="destGrid"></div>
+            </div>
+
+            <div id="modeSection" style="display:none;">
+                <div class="step-label">3. Transit Mode</div>
+                <div id="logicAlert" class="alert-box">
+                    <span>⚠️</span> <span id="alertText">Short Distance: Metro Unavailable.</span>
+                </div>
+                <div class="mode-tabs" style="display:flex;">
+                    <div class="tab active" onclick="setMode('cab')" id="tabCab">🚖 Cab/Auto</div>
+                    <div class="tab" onclick="setMode('metro')" id="tabMetro">🚇 Metro</div>
+                    <div class="tab" onclick="setMode('bus')" id="tabBus">🚌 Bus</div>
+                </div>
+                <div id="transitCard" class="transit-card">
+                    <div class="stats-row">
+                        <div>
+                            <div class="big-time" id="totalTime">-- min</div>
+                            <div style="font-size:0.75rem; color:#94a3b8; margin-top:5px;" id="routeSummary">--</div>
+                        </div>
+                        <div>
+                            <div class="price-tag" id="totalPrice">₹--</div>
+                        </div>
+                    </div>
+                    <div class="timeline" id="timeline"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+    
+    <div class="map-controls">
+        <button class="map-btn active" onclick="setLayer('sat')" id="btnSat">Satellite</button>
+        <button class="map-btn" onclick="setLayer('traffic')" id="btnTraffic">🚦 Traffic</button>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // --- 1. DATA ---
+        const users = [
+            { id: 'diya', name: "Diya", coords: [12.963, 77.638], area: "Domlur", color: "#ec4899" },
+            { id: 'mira', name: "Mira", coords: [13.120, 77.580], area: "Yelahanka", color: "#a855f7" },
+            { id: 'kapila', name: "Kapila", coords: [12.955, 77.660], area: "Murugeshpalya", color: "#22c55e" },
+            { id: 'tanvi', name: "Tanvi", coords: [13.100, 77.570], area: "Yelahanka New", color: "#f59e0b" }
+        ];
+
+        let origin = null;
+        let dest = null;
+        let mode = 'cab';
+        let currentPolyline = null;
+
+        // --- 2. MAP LAYERS (TRAFFIC ADDED) ---
+        const map = L.map('map', { zoomControl: false }).setView([13.03, 77.61], 11);
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+        // A. Esri Satellite (Beautiful)
+        const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Esri'
+        });
+
+        // B. Google Traffic (The "Real-Time" Hack)
+        // lyrs=m (map), traffic (traffic layer)
+        const trafficLayer = L.tileLayer('https://mt0.google.com/vt?lyrs=m,traffic&x={x}&y={y}&z={z}', {
+            attribution: 'Google'
+        });
+
+        // Default
+        satLayer.addTo(map);
+
+        function setLayer(type) {
+            if (type === 'sat') {
+                map.removeLayer(trafficLayer);
+                satLayer.addTo(map);
+                document.getElementById('btnSat').classList.add('active');
+                document.getElementById('btnTraffic').classList.remove('active', 'traffic-active');
+            } else {
+                map.removeLayer(satLayer);
+                trafficLayer.addTo(map);
+                document.getElementById('btnSat').classList.remove('active');
+                document.getElementById('btnTraffic').classList.add('traffic-active');
+            }
+        }
+
+        users.forEach(u => {
+            const icon = L.divIcon({
+                className: '',
+                html: `<div style="background:${u.color}; width:24px; height:24px; border-radius:50%; border:2px solid white; display:flex; align-items:center; justify-content:center; font-weight:bold; color:#fff; box-shadow:0 4px 10px rgba(0,0,0,0.5); text-shadow:0 0 2px #000;">${u.name[0]}</div>`
+            });
+            L.marker(u.coords, {icon}).addTo(map).bindPopup(u.name);
+        });
+
+        // --- 3. CONNECTIVITY LOGIC ---
+        function checkConnectivity(o, d) {
+            if ((o.id === 'tanvi' && d.id === 'mira') || (o.id === 'mira' && d.id === 'tanvi')) {
+                return { metroAllowed: false, reason: "Too close for Metro (3km). Use Auto." };
+            }
+            if ((o.id === 'diya' && d.id === 'kapila') || (o.id === 'kapila' && d.id === 'diya')) {
+                return { metroAllowed: false, reason: "Too close (2km). Use Auto." };
+            }
+            return { metroAllowed: true, reason: "" };
+        }
+
+        // --- 4. UI LOGIC ---
+        const oGrid = document.getElementById('originGrid');
+        const dGrid = document.getElementById('destGrid');
+
+        function renderGrids() {
+            oGrid.innerHTML = ''; dGrid.innerHTML = '';
+            users.forEach(u => {
+                const oChip = document.createElement('div');
+                oChip.className = `chip ${origin && origin.id === u.id ? 'selected' : ''}`;
+                oChip.innerHTML = `<div class="avatar" style="background:${u.color}">${u.name[0]}</div>${u.name}`;
+                oChip.onclick = () => { 
+                    origin = u; dest = null; 
+                    resetUI(); renderGrids(); 
+                    document.getElementById('destSection').style.opacity=1; 
+                    document.getElementById('destSection').style.pointerEvents='all'; 
+                    map.flyTo(u.coords, 12); 
+                };
+                oGrid.appendChild(oChip);
+
+                const dChip = document.createElement('div');
+                dChip.className = `chip ${dest && dest.id === u.id ? 'selected' : ''}`;
+                if(origin && origin.id === u.id) dChip.classList.add('disabled');
+                dChip.innerHTML = `<div class="avatar" style="background:${u.color}">${u.name[0]}</div>${u.name}`;
+                dChip.onclick = () => { dest = u; renderGrids(); handleSelection(); };
+                dGrid.appendChild(dChip);
+            });
+        }
+
+        function resetUI() {
+            document.getElementById('modeSection').style.display = 'none';
+            document.getElementById('logicAlert').style.display = 'none';
+            if(currentPolyline) map.removeLayer(currentPolyline);
+        }
+
+        function handleSelection() {
+            const status = checkConnectivity(origin, dest);
+            const tabMetro = document.getElementById('tabMetro');
+            const alertBox = document.getElementById('logicAlert');
+            
+            if (!status.metroAllowed) {
+                tabMetro.classList.add('locked');
+                tabMetro.onclick = null;
+                alertBox.style.display = 'flex';
+                document.getElementById('alertText').innerText = status.reason;
+                setMode('cab');
+            } else {
+                tabMetro.classList.remove('locked');
+                tabMetro.onclick = () => setMode('metro');
+                alertBox.style.display = 'none';
+                setMode('cab');
+            }
+        }
+
+        function setMode(m) {
+            mode = m;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active', 'cab'));
+            if (mode === 'cab') document.getElementById('tabCab').classList.add('active', 'cab');
+            if (mode === 'metro') document.getElementById('tabMetro').classList.add('active');
+            if (mode === 'bus') document.getElementById('tabBus').classList.add('active');
+            calculatePath();
+        }
+
+        async function calculatePath() {
+            document.getElementById('modeSection').style.display = 'block';
+            document.getElementById('transitCard').style.display = 'block';
+
+            const url = `https://router.project-osrm.org/route/v1/driving/${origin.coords[1]},${origin.coords[0]};${dest.coords[1]},${dest.coords[0]}?overview=full&geometries=geojson`;
+            const res = await fetch(url);
+            const data = await res.json();
+            const route = data.routes[0];
+
+            if(currentPolyline) map.removeLayer(currentPolyline);
+            const latlngs = route.geometry.coordinates.map(c => [c[1], c[0]]);
+            
+            let color = '#fb923c'; 
+            let dash = null;
+            if (mode === 'metro') { color = '#c084fc'; dash = '10,10'; }
+            if (mode === 'bus') { color = '#4ade80'; dash = '10,10'; }
+
+            currentPolyline = L.polyline(latlngs, { color: color, weight: 6, dashArray: dash }).addTo(map);
+            map.fitBounds(currentPolyline.getBounds(), { padding: [50, 50] });
+
+            updateStats(route);
+        }
+
+        function updateStats(route) {
+            const distKm = route.distance / 1000;
+            const baseMins = route.duration / 60;
+            const now = new Date();
+            
+            let finalTime, finalPrice, summary, stops = [];
+
+            if (mode === 'cab') {
+                finalTime = Math.round(baseMins * 1.2);
+                finalPrice = Math.round(40 + (distKm * 18));
+                summary = "Direct Auto/Cab";
+                stops.push({ time: formatTime(now, 2), name: "Driver Arriving", detail: "Auto/Car • 2 mins away" });
+                stops.push({ time: formatTime(now, finalTime), name: "Drop-off", detail: dest.name + "'s Location" });
+            } 
+            else if (mode === 'bus') {
+                finalTime = Math.round(baseMins * 1.8);
+                finalPrice = 20;
+                summary = "Local Bus";
+                stops.push({ time: formatTime(now, 5), name: "Walk to Stop", detail: "Nearest Bus Stand" });
+                stops.push({ time: formatTime(now, 15), name: "Board Bus", detail: "Wait time: 10 mins" });
+                stops.push({ time: formatTime(now, finalTime), name: "Arrival", detail: "Walk to destination" });
+            }
+            else if (mode === 'metro') {
+                finalTime = Math.round(baseMins * 1.5) + 15;
+                finalPrice = 45;
+                summary = "Metro Line";
+                stops.push({ time: formatTime(now, 10), name: "Feeder to Station", detail: "Bus/Auto to Station" });
+                stops.push({ time: formatTime(now, 15), name: "Platform", detail: "Next train in 06 mins" });
+                stops.push({ time: formatTime(now, finalTime), name: "Destination Station", detail: "Last mile" });
+            }
+
+            document.getElementById('totalTime').innerText = `${finalTime} min`;
+            document.getElementById('totalPrice').innerText = `₹${finalPrice}`;
+            document.getElementById('routeSummary').innerText = `${distKm.toFixed(1)} km • ${summary}`;
+            
+            document.getElementById('timeline').innerHTML = stops.map(s => `
+                <div class="stop">
+                    <div class="stop-time">${s.time}</div>
+                    <div class="stop-name">${s.name}</div>
+                    <div class="stop-detail">${s.detail}</div>
+                </div>
+            `).join('');
+        }
+
+        function formatTime(base, add) {
+            const d = new Date(base.getTime() + (add * 60000));
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        renderGrids();
+    </script>
+</body>
+</html>
